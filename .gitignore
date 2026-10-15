@@ -1,0 +1,15 @@
+# Python environment/cache
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local secrets and runtime database
+.env
+*.db
+
+# Generated files
+artifacts/
+*.log
+.DS_Store

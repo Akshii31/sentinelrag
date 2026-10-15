@@ -1,0 +1,18 @@
+[
+  {
+    "question": "What should I do if I receive a suspicious email with an attachment?",
+    "expected_document": "phishing_triage.md"
+  },
+  {
+    "question": "What are the first steps for suspected ransomware?",
+    "expected_document": "ransomware_response.md"
+  },
+  {
+    "question": "What should happen after an API key is exposed in a public repository?",
+    "expected_document": "exposed_api_key.md"
+  },
+  {
+    "question": "What is the reimbursement process for office parking?",
+    "expected_document": null
+  }
+]
