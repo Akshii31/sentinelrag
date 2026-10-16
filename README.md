@@ -60,6 +60,8 @@ Copy-Item .env.example .env
 
 Open `.env` and replace `SENTINELRAG_API_KEY` with a long random local secret. Do not commit `.env`. For LLM mode, set `LLM_API_KEY`, `LLM_BASE_URL`, and `LLM_MODEL` for your provider. The adapter expects an OpenAI-compatible `POST {LLM_BASE_URL}/chat/completions` endpoint. Provider-specific differences may require adjustments to `app/llm_client.py`.
 
+After creating or editing `.env`, stop and restart Uvicorn. The application reads the fixed project-root path `C:\Users\ammun\Downloads\sentinelrag\sentinelrag\.env` when its settings are created; an already running worker keeps its existing settings. A usable `SENTINELRAG_API_KEY` set in the process environment takes precedence, while empty or example placeholder process values fall back to a usable value in `.env`.
+
 To make the API key available to demo commands in your current PowerShell window, set it to the same value as `.env`:
 
 ```powershell

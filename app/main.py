@@ -215,6 +215,10 @@ def create_app(
                 content={"detail": f"Knowledge base unavailable: {application.state.retrieval_error}"},
             )
 
+        # Keep the ranked candidates in the response for score transparency, but
+        # use only threshold-qualified passages as answer evidence.  In
+        # particular, a useful top match must not cause unrelated, low-scoring
+        # passages to be sent to the answerer or exposed as citations.
         results = application.state.retriever.search(body.question, top_k=body.top_k)
         best_score = results[0]["score"] if results else 0.0
         retrieval_summary = [
@@ -244,18 +248,47 @@ def create_app(
                 request_id=request_id,
             )
 
+        evidence = [
+            item for item in results
+            if item["score"] >= config.min_similarity
+        ]
+        # This is normally implied by the best-score admission check above. Keep
+        # the guard explicit so a future retriever implementation cannot send an
+        # empty evidence set to offline formatting or to an LLM.
+        if not evidence:
+            answer = "Insufficient evidence in the knowledge base to answer this question reliably."
+            request_id = record_event(
+                key_fingerprint=identity,
+                decision="refuse",
+                question=body.question,
+                mode=body.mode,
+                status_code=200,
+                similarity=best_score,
+                reason="no_threshold_qualified_evidence",
+                answer_snippet=answer,
+            )
+            if isinstance(request_id, JSONResponse):
+                return request_id
+            return AskResponse(
+                answer=answer,
+                citations=[],
+                retrieval=retrieval_summary,
+                refusal=True,
+                request_id=request_id,
+            )
+
         citations = [
             {
                 "document": item["document"],
                 "section": item["section"],
                 "chunk_id": item["chunk_id"],
             }
-            for item in results
+            for item in evidence
         ]
 
         if body.mode == "offline":
             answer_lines = ["Retrieved evidence (offline mode):"]
-            for item in results:
+            for item in evidence:
                 answer_lines.append(
                     f"\n- [{item['document']}#{item['section']}] {item['text']}"
                 )
@@ -277,7 +310,7 @@ def create_app(
                     status_code=503,
                     content={"detail": "LLM mode requires LLM_API_KEY and LLM_MODEL in .env."},
                 )
-            user_prompt = build_user_prompt(body.question, results)
+            user_prompt = build_user_prompt(body.question, evidence)
             try:
                 answer = validate_grounded_answer(
                     llm(SYSTEM_PROMPT, user_prompt, config),

@@ -17,6 +17,7 @@ def make_client(
     *,
     api_key=API_KEY,
     limit=10,
+    min_similarity=0.10,
     llm_key="test-llm-key",
     llm_model="test-model",
     llm_callable=None,
@@ -27,7 +28,7 @@ def make_client(
         llm_api_key=llm_key,
         llm_base_url="https://example.invalid/v1",
         llm_model=llm_model,
-        min_similarity=0.04,
+        min_similarity=min_similarity,
         rate_limit_requests=limit,
         rate_limit_window_seconds=60,
         max_question_chars=2000,
@@ -66,6 +67,25 @@ def test_valid_request_returns_sources(tmp_path):
     assert body["request_id"] is not None
 
 
+def test_suspicious_email_excludes_below_threshold_passages_from_offline_answer(tmp_path):
+    client, _ = make_client(tmp_path)
+    response = post_question(
+        client,
+        "What should an employee do after receiving a suspicious email?",
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["refusal"] is False
+    assert len(body["citations"]) == 1
+    assert body["citations"][0]["document"] == "phishing_triage.md"
+    assert body["citations"][0]["section"] == "Evidence to preserve"
+    assert body["retrieval"][0]["score"] >= 0.10
+    assert all(item["score"] < 0.10 for item in body["retrieval"][1:])
+    assert "malware_response.md" not in body["answer"]
+    assert "suspicious_login.md" not in body["answer"]
+
+
 def test_out_of_scope_question_is_refused(tmp_path):
     client, _ = make_client(tmp_path)
     response = post_question(client, "What is the office parking reimbursement policy?")
@@ -90,6 +110,30 @@ def test_low_evidence_llm_question_does_not_invoke_llm(tmp_path):
     )
     assert response.status_code == 200
     assert response.json()["refusal"] is True
+    assert calls == []
+
+
+def test_below_threshold_match_does_not_invoke_llm(tmp_path):
+    calls = []
+
+    def fake_llm(*args):
+        calls.append(args)
+        return "This must not be returned. [phishing_triage.md#Evidence to preserve]"
+
+    client, _ = make_client(
+        tmp_path,
+        min_similarity=0.20,
+        llm_callable=fake_llm,
+    )
+    response = post_question(
+        client,
+        "What should an employee do after receiving a suspicious email?",
+        mode="llm",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["refusal"] is True
+    assert response.json()["citations"] == []
     assert calls == []
 
 
@@ -156,6 +200,26 @@ def test_llm_mode_uses_injected_client(tmp_path):
     response = post_question(client, "What should I do about a suspicious email attachment?", mode="llm")
     assert response.status_code == 200
     assert "Preserve the original email" in response.json()["answer"]
+
+
+def test_llm_context_and_citations_only_use_threshold_qualified_evidence(tmp_path):
+    def fake_llm(system_prompt, user_prompt, settings):
+        assert "phishing_triage.md" in user_prompt
+        assert "malware_response.md" not in user_prompt
+        assert "suspicious_login.md" not in user_prompt
+        return "Preserve the original email. [phishing_triage.md#Evidence to preserve]"
+
+    client, _ = make_client(tmp_path, llm_callable=fake_llm)
+    response = post_question(
+        client,
+        "What should an employee do after receiving a suspicious email?",
+        mode="llm",
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()["citations"]) == 1
+    assert response.json()["citations"][0]["document"] == "phishing_triage.md"
+    assert response.json()["citations"][0]["section"] == "Evidence to preserve"
 
 
 def test_llm_response_with_missing_or_fabricated_citation_is_rejected(tmp_path):

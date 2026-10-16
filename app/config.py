@@ -4,10 +4,31 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
+
+from app.security import api_key_is_configured
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(PROJECT_ROOT / ".env", override=False)
+
+
+def _configured_value(name: str, file_values: dict[str, str | None], default: str = "") -> str:
+    """Resolve a setting from a usable process value or this project's `.env`.
+
+    A non-empty process variable remains the explicit override. For the server
+    API key, an empty or example placeholder process value must not mask a
+    usable value stored in the project-root `.env` file.
+    """
+    process_value = os.getenv(name)
+    if name == "SENTINELRAG_API_KEY":
+        if process_value is not None and api_key_is_configured(process_value):
+            return process_value
+    elif process_value is not None and process_value.strip():
+        return process_value
+
+    file_value = file_values.get(name)
+    if file_value is not None:
+        return file_value
+    return process_value if process_value is not None else default
 
 
 @dataclass(frozen=True)
@@ -28,23 +49,41 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        """Read settings from environment, with safe non-secret defaults."""
+        """Read settings using the fixed project-root `.env` path.
+
+        This function deliberately does not depend on the current working
+        directory, so `uvicorn app.main:app` started from the project root and
+        IDE launch configurations resolve the same `.env` file.
+        """
+        file_values = dotenv_values(PROJECT_ROOT / ".env")
         try:
-            min_similarity = float(os.getenv("SENTINELRAG_MIN_SIMILARITY", "0.10"))
+            min_similarity = float(
+                _configured_value("SENTINELRAG_MIN_SIMILARITY", file_values, "0.10")
+            )
         except ValueError as exc:
             raise ValueError("SENTINELRAG_MIN_SIMILARITY must be numeric") from exc
 
         try:
-            rate_limit_requests = int(os.getenv("SENTINELRAG_RATE_LIMIT", "10"))
-            rate_limit_window_seconds = int(os.getenv("SENTINELRAG_RATE_WINDOW_SECONDS", "60"))
-            max_question_chars = int(os.getenv("SENTINELRAG_MAX_QUESTION_CHARS", "2000"))
-            llm_timeout_seconds = int(os.getenv("SENTINELRAG_LLM_TIMEOUT_SECONDS", "30"))
+            rate_limit_requests = int(
+                _configured_value("SENTINELRAG_RATE_LIMIT", file_values, "10")
+            )
+            rate_limit_window_seconds = int(
+                _configured_value("SENTINELRAG_RATE_WINDOW_SECONDS", file_values, "60")
+            )
+            max_question_chars = int(
+                _configured_value("SENTINELRAG_MAX_QUESTION_CHARS", file_values, "2000")
+            )
+            llm_timeout_seconds = int(
+                _configured_value("LLM_TIMEOUT_SECONDS", file_values, "30")
+            )
         except ValueError as exc:
             raise ValueError("Rate-limit, question-length, and timeout settings must be integers") from exc
 
         root = PROJECT_ROOT
-        db_value = os.getenv("SENTINELRAG_DB_PATH", str(root / "data" / "sentinelrag.db"))
-        data_value = os.getenv("SENTINELRAG_DATA_DIR", str(root / "data"))
+        db_value = _configured_value(
+            "SENTINELRAG_DB_PATH", file_values, str(root / "data" / "sentinelrag.db")
+        )
+        data_value = _configured_value("SENTINELRAG_DATA_DIR", file_values, str(root / "data"))
 
         if not 0 <= min_similarity <= 1:
             raise ValueError("SENTINELRAG_MIN_SIMILARITY must be between 0 and 1")
@@ -54,10 +93,12 @@ class Settings:
             raise ValueError("Question limit and LLM timeout must both be positive")
 
         return cls(
-            api_key=os.getenv("SENTINELRAG_API_KEY", ""),
-            llm_api_key=os.getenv("LLM_API_KEY", ""),
-            llm_base_url=os.getenv("LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
-            llm_model=os.getenv("LLM_MODEL", ""),
+            api_key=_configured_value("SENTINELRAG_API_KEY", file_values),
+            llm_api_key=_configured_value("LLM_API_KEY", file_values),
+            llm_base_url=_configured_value(
+                "LLM_BASE_URL", file_values, "https://api.openai.com/v1"
+            ).rstrip("/"),
+            llm_model=_configured_value("LLM_MODEL", file_values),
             min_similarity=min_similarity,
             rate_limit_requests=rate_limit_requests,
             rate_limit_window_seconds=rate_limit_window_seconds,
