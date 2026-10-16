@@ -8,6 +8,7 @@ It also demonstrates basic application controls: static API-key authentication, 
 
 - TF-IDF retrieval over eight local Markdown runbooks.
 - `POST /ask` endpoint with citations and retrieval scores.
+- Local Streamlit chat interface that calls the authenticated API in offline mode.
 - `mode: "offline"` for local retrieval without an LLM API call.
 - `mode: "llm"` for a configured OpenAI-compatible chat-completions provider.
 - Refusal when no passage matches or the top retrieval score is below the configured threshold.
@@ -75,6 +76,17 @@ uvicorn app.main:app --reload
 ```
 
 Open `http://127.0.0.1:8000/docs` for the interactive API documentation or check `http://127.0.0.1:8000/health`.
+
+### Local chat interface
+
+Keep the API running, then open a second PowerShell window in this project and run:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+streamlit run chat_ui.py
+```
+
+The chat interface is intended for local use only. It reads the existing project-root `.env` configuration in the Streamlit server process and sends authenticated requests to `http://127.0.0.1:8000/ask`; the browser never receives the API key. It uses `mode: "offline"`, so its conversational display consists of retrieved runbook evidence and does not require or verify a live LLM connection.
 
 LLM mode uses the OpenAI-compatible Chat Completions format: `POST {LLM_BASE_URL}/chat/completions` with Bearer authentication and a `choices[0].message.content` response. Configure `LLM_BASE_URL`, `LLM_MODEL`, and `LLM_API_KEY` only if your provider documents that format. A provider with a different protocol needs a dedicated adapter in `app/llm_client.py`; no live provider was configured or called during this project verification.
 
@@ -170,7 +182,7 @@ The score threshold is a heuristic, not a confidence guarantee. Calibration unco
 
 ## Project scope / future work
 
-Explicitly out of scope for this first version: vector databases, embeddings, Docker, CI/CD, cloud deployment, frontend UI, multi-turn memory, Redis, OAuth/JWT, and production-grade security controls.
+Explicitly out of scope for this first version: vector databases, embeddings, Docker, CI/CD, cloud deployment, multi-turn LLM memory, Redis, OAuth/JWT, and production-grade security controls.
 
 ## Resume bullets
 
